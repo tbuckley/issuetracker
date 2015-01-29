@@ -8,11 +8,12 @@ from oauth2client.client import flow_from_clientsecrets
 from oauth2client.file import Storage
 from urllib import urlencode
 from urlparse import urlunsplit
-import xml.etree.ElementTree as ET
+
 from collections import namedtuple
 import datetime
 from math import ceil
 import sys
+import copy
 
 CLIENT_SECRETS = 'client_secrets.json'
 OAUTH2_STORAGE = 'oauth2.dat'
@@ -48,49 +49,8 @@ def _authorize():
     auth_http = credentials.authorize(http)
     return auth_http
 
-def get_xml_tree_for_url(client, url):
-    """Get the xml tree for the given url."""
-    (_, content) = client.request(url, "GET")
-    return ET.fromstring(content)
 
-def get_issues_page(client, project, label=None, can="open", start_index=1, q=None):
-    """Return the issues page for the specified label/can."""
-    query_dict = {
-        "can": can,
-        "start-index": start_index,
-        "max-results": 100,
-    }
-    if label is not None:
-        query_dict["label"] = label
-    if q is not None:
-        query_dict["q"] = q
 
-    query = urlencode(query_dict)
-    path = "/feeds/issues/p/{project}/issues/full".format(project=project)
-    url = urlunsplit(("https", "code.google.com", path, query, ""))
-    return get_xml_tree_for_url(client, url)
-
-def get_next_page(client, page):
-    """Get the next page of issues if one exists. Return None otherwise."""
-    for child in page:
-        if child.tag.endswith("link") and child.attrib["rel"] == "next":
-            url = child.attrib["href"]
-            return get_xml_tree_for_url(client, url)
-    return None
-
-def get_first_child_by_tag(page, tag):
-    """Return the first child of `page` with the given tag."""
-    for child in page:
-        if child.tag.endswith(tag):
-            return child
-
-def get_issues_from_page(page):
-    """Return a list of the issues from the given page."""
-    entries = []
-    for child in page:
-        if child.tag.endswith("entry"):
-            entries.append(child)
-    return entries
 
 def get_all_issues(client, project, verbose=False, **kwargs):
     """Get all issues for the given search."""
@@ -116,13 +76,6 @@ def get_all_issues(client, project, verbose=False, **kwargs):
     if verbose:
         print
     return issues
-
-def get_details_for_page(page):
-    """Return the number of open issues."""
-    count = int(get_first_child_by_tag(page, "totalResults").text)
-    offset = int(get_first_child_by_tag(page, "startIndex").text)
-    limit = int(get_first_child_by_tag(page, "itemsPerPage").text)
-    return PageDetails(count=count, offset=offset, limit=limit)
 
 def get_issue_owner(issue):
     """Get the owner for the given issue."""
