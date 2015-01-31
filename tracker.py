@@ -19,7 +19,7 @@ from oauth2client.client import flow_from_clientsecrets
 from oauth2client.file import Storage
 import datetime
 from docopt import docopt
-from query import IssuesQuery, get_first_child_by_tag
+from query import IssuesQuery
 
 CLIENT_SECRETS = 'client_secrets.json'
 OAUTH2_STORAGE = 'oauth2.dat'
@@ -77,145 +77,9 @@ def _authorize():
 #         print
 #     return issues
 
-# Helper functions
 
-def ensure_only_one(vals, transform_fn):
-    """Ensure that vals contains only one value. Return it or None."""
-    if len(vals) != 1:
-        return None
-    return transform_fn(vals[0])
-
-def safe_cast_int(val):
-    """Attempt to cast val to an int, returning None if error."""
-    try:
-        return int(val)
-    except ValueError:
-        return None
-
-def get_text(elem):
-    """Get the text for the element."""
-    return elem.text
-
-def has_tag(tag):
-    """Return a predicate that tests if an element has the given tag."""
-    def func(elem):
-        """Test that an element has a specific tag."""
-        return elem.tag.endswith(tag)
-    return func
-
-def process_pipeline(funcs):
-    """Take a series of funcs and run them in order on an input."""
-    def helper(val):
-        if val is None:
-            return val
-        if len(funcs) == 0:
-            return val
-        else:
-            return helper(func[0])
-
-def get_issue_text_property(issue, tag):
-    """Return the text for the property with the given tag."""
-    properties = filter(has_tag(tag), issue)
-    return ensure_only_one(properties, get_text)
-
-def get_issue_int_property(issue, tag):
-    """Return the int value for the property with the given tag."""
-    properties = filter(has_tag(tag), issue)
-    return ensure_only_one(properties, pipeline(get_text, safe_cast_int))
-
-def issue_property_matches_p(prop_fn, value):
-    """Create a func to test that the prop value matches the given value."""
-    def matcher_fn(issue):
-        """Test that the issue matches the value."""
-        return prop_fn(issue) == value
-    return matcher_fn
-
-def issue_property_lessthan_p(prop_fn, value):
-    """Create a func to test that the prop value is less than the given value."""
-    def matcher_fn(issue):
-        """Test that the issue is less than the value."""
-        return prop_fn(issue) < value
-    return matcher_fn
-
-def notp(pred_fn):
-    """Negate the given predicate."""
-    def pred(issue):
-        """Negate the given predicate."""
-        return not pred_fn(issue)
-    return pred
 
 # Issue helpers
-
-def get_issue_owner(issue):
-    """Get the owner for the given issue."""
-    owner = get_first_child_by_tag(issue, "owner")
-    if owner is None:
-        return None
-    username = get_first_child_by_tag(owner, "username")
-    if username is None:
-        return None
-    return username.text
-
-def get_issue_status(issue):
-    """Get the owner for the given issue."""
-    statuses = filter(has_tag("status"), issue)
-    return ensure_only_one(statuses, get_text)
-
-def get_issue_id(issue):
-    """Get the id for the given issue."""
-    ids = filter(has_tag("{http://schemas.google.com/projecthosting/issues/2009}id"), issue)
-    return ensure_only_one(ids, lambda x: safe_cast_int(get_text(x)))
-
-def get_issue_stars(issue):
-    """Get the number of stars for the given issue."""
-    stars = filter(has_tag("stars"), issue)
-    return ensure_only_one(stars, lambda x: safe_cast_int(get_text(x)))
-
-def get_issue_updated_date(issue):
-    """Get the number of stars for the given issue."""
-    updated_dates = filter(has_tag("updated"), issue)
-    updated_date = ensure_only_one(updated_dates, get_text)
-    if updated_date is None:
-        return None
-    (date_string, _) = updated_date.split("T")
-    return date_string
-
-def get_issue_published_date(issue):
-    """Get the number of stars for the given issue."""
-    updated_dates = filter(has_tag("published"), issue)
-    updated_date = ensure_only_one(updated_dates, get_text)
-    if updated_date is None:
-        return None
-    (date_string, _) = updated_date.split("T")
-    return date_string
-
-def get_issue_labels(issue):
-    """Get the labels for an issue."""
-    return map(get_text, filter(has_tag("label"), issue))
-
-def issue_has_label(label):
-    """Return a pred that tests the issue has the given label."""
-    def pred(issue):
-        """Test that the issue has a given label."""
-        labels = get_issue_labels(issue)
-        return label in labels
-    return pred
-
-def get_labels_with_prefix(issue, prefix):
-    """Get the labels with the given prefix. Prefix is removed."""
-    labels = get_issue_labels(issue)
-    matching_labels = filter(lambda label: label.startswith(prefix), labels)
-    return map(lambda label: label[len(prefix):], matching_labels)
-
-def get_issue_priority(issue):
-    """Get the integer priority of the given issue. May be None."""
-    priorities = get_labels_with_prefix(issue, "Pri-")
-    return ensure_only_one(priorities, safe_cast_int)
-
-def get_issue_milestone(issue):
-    """Get the integer priority of the given issue. May be None."""
-    milestones = get_labels_with_prefix(issue, "M-")
-    return ensure_only_one(milestones, safe_cast_int)
 
 def get_issues_in_range(query, status, date, days=1):
     """Get the issues with the given status on the date. status = (opened|closed)."""

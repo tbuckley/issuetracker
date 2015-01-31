@@ -5,12 +5,7 @@ import copy
 from urllib import urlencode
 from urlparse import urlunsplit
 import xml.etree.ElementTree as ET
-
-def get_first_child_by_tag(page, tag):
-    """Return the first child of `page` with the given tag."""
-    for child in page:
-        if child.tag.endswith(tag):
-            return child
+from utils import get_first_child_by_tag
 
 def count_for_page(page):
     """Get the count for the given page."""
