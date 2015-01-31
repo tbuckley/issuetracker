@@ -20,6 +20,7 @@ from oauth2client.file import Storage
 import datetime
 from docopt import docopt
 from query import IssuesQuery
+import utils
 
 CLIENT_SECRETS = 'client_secrets.json'
 OAUTH2_STORAGE = 'oauth2.dat'
@@ -130,7 +131,7 @@ def print_groups(issues, prop_fn, hint=0):
         key_issues = groups[key]
         print "{key}: {num_issues}".format(key=key, num_issues=len(key_issues)),
         if hint > 0:
-            key_ids = [str(get_issue_id(i)) for i in key_issues]
+            key_ids = [str(utils.get_issue_id(i)) for i in key_issues]
             if len(key_ids) > hint:
                 print "["+" ".join(key_ids[:3])+"...]"
             else:
@@ -141,14 +142,14 @@ def print_groups(issues, prop_fn, hint=0):
 def create_issue_dict(issues):
     issue_dict = {}
     for issue in issues:
-        issue_dict[get_issue_id(issue)] = issue
+        issue_dict[utils.get_issue_id(issue)] = issue
     return issue_dict
 
 def issue_dict_remove(issue_dict, issue):
-    del issue_dict[get_issue_id(issue)]
+    del issue_dict[utils.get_issue_id(issue)]
 
 def issue_dict_add(issue_dict, issue):
-    issue_dict[get_issue_id(issue)] = issue
+    issue_dict[utils.get_issue_id(issue)] = issue
 
 def iterate_through_range(query, start, end, start_fn=None, iter_fn=None, days=1):
     """Iterate through the range."""
@@ -166,18 +167,6 @@ def iterate_through_range(query, start, end, start_fn=None, iter_fn=None, days=1
 
         if iter_fn is not None:
             iter_fn(date, opened_issues, closed_issues)
-
-def is_for_earlier_milestone_p(milestone):
-    """Return predicate that tests if the issue is for a previous milestone."""
-    return issue_property_lessthan_p(get_issue_milestone, milestone)
-
-def is_for_milestone_p(milestone):
-    """Return predicate that tests if the issue is for the given milestone."""
-    return issue_property_matches_p(get_issue_milestone, milestone)
-
-def is_launch_p():
-    """Return a predicate that tests if issue is a launch bug."""
-    return issue_has_label("Type-Launch")
 
 class GridTracker(object):
     """Track issues over time."""
@@ -233,15 +222,15 @@ class ChangeTracker(object):
 
     def start(self, date, start_issues):
         """Start with the given set of issues."""
-        self._original_issues = set([get_issue_id(i) for i in start_issues])
+        self._original_issues = set([utils.get_issue_id(i) for i in start_issues])
         self._new_issues = set()
         self._closed_original_issues = set()
         self._tracker.append((date, len(self._closed_original_issues), len(self._new_issues)))
 
     def iter(self, date, opened_issues, closed_issues):
         """Add an iteration with the opened/closed issues."""
-        opened_ids = set([get_issue_id(i) for i in opened_issues])
-        closed_ids = set([get_issue_id(i) for i in closed_issues])
+        opened_ids = set([utils.get_issue_id(i) for i in opened_issues])
+        closed_ids = set([utils.get_issue_id(i) for i in closed_issues])
         closed_original = closed_ids.intersection(self._original_issues)
         self._closed_original_issues = self._closed_original_issues.union(closed_original)
         self._original_issues = self._original_issues.difference(closed_ids)
@@ -258,7 +247,7 @@ class ChangeTracker(object):
 def print_open_close_rate(query, start, end, days=1):
     """Print the rate of open/closed bugs."""
 
-    priority_tracker = GridTracker(get_issue_priority)
+    priority_tracker = GridTracker(utils.get_issue_priority)
     # status_tracker = GridTracker(get_issue_status)
     # milestone_tracker = GridTracker(get_issue_milestone)
     change_tracker = ChangeTracker()
@@ -280,20 +269,20 @@ def print_open_close_rate(query, start, end, days=1):
 
 def print_issues_summary(name, issues):
     """Print summary about the given set of issues."""
-    launches = filter(is_launch_p(), issues)
-    non_launches = filter(notp(is_launch_p()), issues)
+    launches = filter(utils.issue_is_launch_p, issues)
+    non_launches = filter(utils.not_p(utils.issue_is_launch_p), issues)
     print "{name}: {num_issues} issues, {num_launches} launches".format(
         name=name, num_issues=len(non_launches), num_launches=len(launches))
 
 def print_pre_milestone_summary(milestone, issues):
     """Print info about the milestone."""
-    milestone_issues = filter(issue_property_lessthan_p(get_issue_milestone, milestone), issues)
+    milestone_issues = filter(utils.issue_is_before_milestone_p(milestone), issues)
     name = "Pre-M{milestone}".format(milestone=milestone)
     print_issues_summary(name, milestone_issues)
 
 def print_milestone_summary(milestone, issues):
     """Print info about the milestone."""
-    milestone_issues = filter(is_for_milestone_p(milestone), issues)
+    milestone_issues = filter(utils.issue_is_for_milestone_p(milestone), issues)
     name = "M{milestone}".format(milestone=milestone)
     print_issues_summary(name, milestone_issues)
 
@@ -321,19 +310,19 @@ def main():
 
     # Print breakdowns across various metrics
     print "\n== Issues by owner =="
-    print_groups(issues, get_issue_owner, hint=3)
+    print_groups(issues, utils.get_issue_owner, hint=3)
     print "\n== Issues by priority =="
-    print_groups(issues, get_issue_priority, hint=3)
+    print_groups(issues, utils.get_issue_priority, hint=3)
     print "\n== Issues by milestone =="
-    print_groups(issues, get_issue_milestone, hint=3)
+    print_groups(issues, utils.get_issue_milestone, hint=3)
     print "\n== Issues by status =="
-    print_groups(issues, get_issue_status, hint=3)
+    print_groups(issues, utils.get_issue_status, hint=3)
     print "\n== Issues by stars =="
-    print_groups(issues, get_issue_stars, hint=3)
+    print_groups(issues, utils.get_issue_stars, hint=3)
     print "\n== Issues by updated =="
-    print_groups(issues, get_issue_updated_date, hint=3)
+    print_groups(issues, utils.get_issue_updated_date, hint=3)
     print "\n== Issues by published =="
-    print_groups(issues, get_issue_published_date, hint=3)
+    print_groups(issues, utils.get_issue_published_date, hint=3)
 
     # Print graph data
     print "\n== Issues by priority over past 120 days =="

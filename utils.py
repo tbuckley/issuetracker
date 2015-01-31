@@ -169,3 +169,15 @@ def issue_has_label_p(label):
         labels = get_issue_labels(issue)
         return label in labels
     return pred
+
+def issue_is_before_milestone_p(milestone):
+    """Return predicate that tests if the issue is for a previous milestone."""
+    return issue_property_lessthan_p(get_issue_milestone, milestone)
+
+def issue_is_for_milestone_p(milestone):
+    """Return predicate that tests if the issue is for the given milestone."""
+    return issue_property_matches_p(get_issue_milestone, milestone)
+
+def issue_is_launch_p(issue):
+    """Return a predicate that tests if issue is a launch bug."""
+    return issue_has_label_p("Type-Launch")(issue)
