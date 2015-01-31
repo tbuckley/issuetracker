@@ -1,4 +1,15 @@
-"""Tool for generating reports based on Google Code Issue Tracker."""
+"""Tool for generating reports based on Google Code Issue Tracker.
+
+Usage:
+  issues.py <project> [--label=<LABEL>] [--milestone=<M>] [--authorize]
+
+Options:
+  -h --help        Show this screen.
+  --version        Show version.
+  --authorize      Use logged-in client for requests.
+  --label=<LABEL>  Filter issues to the given label.
+  --milestone=<M>  Show information for the given milestone.
+"""
 
 import argparse
 import httplib2
@@ -6,25 +17,14 @@ from oauth2client import tools
 from oauth2client.tools import run_flow
 from oauth2client.client import flow_from_clientsecrets
 from oauth2client.file import Storage
-from urllib import urlencode
-from urlparse import urlunsplit
-
-from collections import namedtuple
 import datetime
-from math import ceil
-import sys
-import copy
+from docopt import docopt
+from query import IssuesQuery, get_first_child_by_tag
 
 CLIENT_SECRETS = 'client_secrets.json'
 OAUTH2_STORAGE = 'oauth2.dat'
 ISSUE_TRACKER_SCOPE = 'https://code.google.com/feeds/issues'
 
-PROJECT = "chromium"
-# LABEL = "cr-ui-settings"
-# LABEL = "cr-ui-input-virtualkeyboard"
-LABEL = "cr-ui-shell-touchview"
-
-PageDetails = namedtuple("PageDetails", ["count", "limit", "offset"])
 
 def _authorize():
     """Return authenticated http client.
@@ -52,30 +52,99 @@ def _authorize():
 
 
 
-def get_all_issues(client, project, verbose=False, **kwargs):
-    """Get all issues for the given search."""
-    page = get_issues_page(client, project, **kwargs)
+# def get_all_issues(client, project, verbose=False, **kwargs):
+#     """Get all issues for the given search."""
+#     page = get_issues_page(client, project, **kwargs)
     
-    if verbose:
-        details = get_details_for_page(page)
-        num_pages = 0
-        if details.limit > 0:
-            num_pages = int(ceil(details.count / float(details.limit)))
-        counter = 1
-        print "Fetching {num_pages} pages...".format(num_pages=num_pages),
-        sys.stdout.flush()
+#     if verbose:
+#         details = get_details_for_page(page)
+#         num_pages = 0
+#         if details.limit > 0:
+#             num_pages = int(ceil(details.count / float(details.limit)))
+#         counter = 1
+#         print "Fetching {num_pages} pages...".format(num_pages=num_pages),
+#         sys.stdout.flush()
 
-    issues = []
-    while page is not None:
-        if verbose:
-            print "{counter} ".format(counter=counter),
-            sys.stdout.flush()
-            counter += 1
-        issues += get_issues_from_page(page)
-        page = get_next_page(client, page)
-    if verbose:
-        print
-    return issues
+#     issues = []
+#     while page is not None:
+#         if verbose:
+#             print "{counter} ".format(counter=counter),
+#             sys.stdout.flush()
+#             counter += 1
+#         issues += get_issues_from_page(page)
+#         page = get_next_page(client, page)
+#     if verbose:
+#         print
+#     return issues
+
+# Helper functions
+
+def ensure_only_one(vals, transform_fn):
+    """Ensure that vals contains only one value. Return it or None."""
+    if len(vals) != 1:
+        return None
+    return transform_fn(vals[0])
+
+def safe_cast_int(val):
+    """Attempt to cast val to an int, returning None if error."""
+    try:
+        return int(val)
+    except ValueError:
+        return None
+
+def get_text(elem):
+    """Get the text for the element."""
+    return elem.text
+
+def has_tag(tag):
+    """Return a predicate that tests if an element has the given tag."""
+    def func(elem):
+        """Test that an element has a specific tag."""
+        return elem.tag.endswith(tag)
+    return func
+
+def process_pipeline(funcs):
+    """Take a series of funcs and run them in order on an input."""
+    def helper(val):
+        if val is None:
+            return val
+        if len(funcs) == 0:
+            return val
+        else:
+            return helper(func[0])
+
+def get_issue_text_property(issue, tag):
+    """Return the text for the property with the given tag."""
+    properties = filter(has_tag(tag), issue)
+    return ensure_only_one(properties, get_text)
+
+def get_issue_int_property(issue, tag):
+    """Return the int value for the property with the given tag."""
+    properties = filter(has_tag(tag), issue)
+    return ensure_only_one(properties, pipeline(get_text, safe_cast_int))
+
+def issue_property_matches_p(prop_fn, value):
+    """Create a func to test that the prop value matches the given value."""
+    def matcher_fn(issue):
+        """Test that the issue matches the value."""
+        return prop_fn(issue) == value
+    return matcher_fn
+
+def issue_property_lessthan_p(prop_fn, value):
+    """Create a func to test that the prop value is less than the given value."""
+    def matcher_fn(issue):
+        """Test that the issue is less than the value."""
+        return prop_fn(issue) < value
+    return matcher_fn
+
+def notp(pred_fn):
+    """Negate the given predicate."""
+    def pred(issue):
+        """Negate the given predicate."""
+        return not pred_fn(issue)
+    return pred
+
+# Issue helpers
 
 def get_issue_owner(issue):
     """Get the owner for the given issue."""
@@ -89,34 +158,48 @@ def get_issue_owner(issue):
 
 def get_issue_status(issue):
     """Get the owner for the given issue."""
-    status = get_first_child_by_tag(issue, "status")
-    if status is None:
-        return None
-    return status.text
+    statuses = filter(has_tag("status"), issue)
+    return ensure_only_one(statuses, get_text)
 
 def get_issue_id(issue):
     """Get the id for the given issue."""
-    for child in issue:
-        # if child.tag.endswith("id"):
-        #     print child.tag
-        if child.tag == "{http://schemas.google.com/projecthosting/issues/2009}id":
-            return child.text
-    return None
+    ids = filter(has_tag("{http://schemas.google.com/projecthosting/issues/2009}id"), issue)
+    return ensure_only_one(ids, lambda x: safe_cast_int(get_text(x)))
 
-def get_text(elem):
-    """Get the text for the element."""
-    return elem.text
+def get_issue_stars(issue):
+    """Get the number of stars for the given issue."""
+    stars = filter(has_tag("stars"), issue)
+    return ensure_only_one(stars, lambda x: safe_cast_int(get_text(x)))
 
-def has_tag(tag):
-    """Return a predicate that tests if an element has the given tag."""
-    def func(elem):
-        """Test that an element has a specific tag."""
-        return elem.tag.endswith(tag)
-    return func
+def get_issue_updated_date(issue):
+    """Get the number of stars for the given issue."""
+    updated_dates = filter(has_tag("updated"), issue)
+    updated_date = ensure_only_one(updated_dates, get_text)
+    if updated_date is None:
+        return None
+    (date_string, _) = updated_date.split("T")
+    return date_string
+
+def get_issue_published_date(issue):
+    """Get the number of stars for the given issue."""
+    updated_dates = filter(has_tag("published"), issue)
+    updated_date = ensure_only_one(updated_dates, get_text)
+    if updated_date is None:
+        return None
+    (date_string, _) = updated_date.split("T")
+    return date_string
 
 def get_issue_labels(issue):
     """Get the labels for an issue."""
     return map(get_text, filter(has_tag("label"), issue))
+
+def issue_has_label(label):
+    """Return a pred that tests the issue has the given label."""
+    def pred(issue):
+        """Test that the issue has a given label."""
+        labels = get_issue_labels(issue)
+        return label in labels
+    return pred
 
 def get_labels_with_prefix(issue, prefix):
     """Get the labels with the given prefix. Prefix is removed."""
@@ -127,68 +210,41 @@ def get_labels_with_prefix(issue, prefix):
 def get_issue_priority(issue):
     """Get the integer priority of the given issue. May be None."""
     priorities = get_labels_with_prefix(issue, "Pri-")
-    if len(priorities) != 1:
-        return None
-    try:
-        return int(priorities[0])
-    except ValueError:
-        return None
+    return ensure_only_one(priorities, safe_cast_int)
 
 def get_issue_milestone(issue):
     """Get the integer priority of the given issue. May be None."""
     milestones = get_labels_with_prefix(issue, "M-")
-    if len(milestones) != 1:
-        return None
-    try:
-        return int(milestones[0])
-    except ValueError:
-        return None
+    return ensure_only_one(milestones, safe_cast_int)
 
-def get_issues_in_range(client, project, status, date, days=1, **kwargs):
+def get_issues_in_range(query, status, date, days=1):
     """Get the issues with the given status on the date. status = (opened|closed)."""
+    assert status in ["opened", "closed"]
     end_date = date + datetime.timedelta(days=days)
-    date_str = date.strftime("%Y/%m/%d")
-    end_date_str = end_date.strftime("%Y/%m/%d")
-    query_template = "{status}-after:{date} {status}-before:{end_date}"
-    query = query_template.format(date=date_str, end_date=end_date_str, status=status)
-    return get_all_issues(client, project, q=query, **kwargs)
+    query = query.can("all")
+    if status == "opened":
+        query = query.opened_after(date).opened_before(end_date)
+    elif status == "closed":
+        query = query.closed_after(date).closed_before(end_date)
+    return query.fetch_all_issues()
 
-def get_issues_opened_in_range(client, project, date, days=1, **kwargs):
+def get_issues_opened_in_range(query, date, days=1):
     """Get the issues opened on the date."""
-    return get_issues_in_range(client, project, "opened", date, days=days, can="all", **kwargs)
+    return get_issues_in_range(query, "opened", date, days=days)
 
-def get_issues_closed_in_range(client, project, date, days=1, **kwargs):
+def get_issues_closed_in_range(query, date, days=1):
     """Get the issues closed on the date."""
-    return get_issues_in_range(client, project, "closed", date, days=days, can="all", **kwargs)
+    return get_issues_in_range(query, "closed", date, days=days)
 
-def get_issues_open_on_date(client, project, date, **kwargs):
+def get_issues_open_on_date(query, date):
     """Get the issues that were open on the given date."""
     issues = []
-    date_str = date.strftime("%Y/%m/%d")
     # Closed bugs that were filed before `date` and closed after `date`
-    query = "opened-before:{date} closed-after:{date}".format(date=date_str)
-    issues += get_all_issues(client, project, q=query, can="all", **kwargs)
+    closed_bugs_query = query.can("all").opened_before(date).closed_after(date)
+    issues += closed_bugs_query.fetch_all_issues()
     # Open bugs that were filed before `date`
-    query = "opened-before:{date}".format(date=date_str)
-    issues += get_all_issues(client, project, q=query, **kwargs)
-    return issues
-
-def get_num_issues(client, project, **kwargs):
-    """Get the number of issues for the query."""
-    page = get_issues_page(client, project, **kwargs)
-    details = get_details_for_page(page)
-    return details.count
-
-def get_num_issues_open_on_date(client, project, date, **kwargs):
-    """Get the issues that were open on the given date."""
-    issues = 0
-    date_str = date.strftime("%Y/%m/%d")
-    # Closed bugs that were filed before `date` and closed after `date`
-    query = "opened-before:{date} closed-after:{date}".format(date=date_str)
-    issues += get_num_issues(client, project, q=query, can="all", **kwargs)
-    # Open bugs that were filed before `date`
-    query = "opened-before:{date}".format(date=date_str)
-    issues += get_num_issues(client, project, q=query, **kwargs)
+    open_bugs_query = query.opened_before(date)
+    issues += open_bugs_query.fetch_all_issues()
     return issues
 
 def group_issues(issues, prop_fn):
@@ -210,7 +266,7 @@ def print_groups(issues, prop_fn, hint=0):
         key_issues = groups[key]
         print "{key}: {num_issues}".format(key=key, num_issues=len(key_issues)),
         if hint > 0:
-            key_ids = [get_issue_id(i) for i in key_issues]
+            key_ids = [str(get_issue_id(i)) for i in key_issues]
             if len(key_ids) > hint:
                 print "["+" ".join(key_ids[:3])+"...]"
             else:
@@ -230,23 +286,34 @@ def issue_dict_remove(issue_dict, issue):
 def issue_dict_add(issue_dict, issue):
     issue_dict[get_issue_id(issue)] = issue
 
-def iterate_through_range(client, project, start, end, start_fn=None, iter_fn=None, days=1, **kwargs):
+def iterate_through_range(query, start, end, start_fn=None, iter_fn=None, days=1):
     """Iterate through the range."""
     date = start
-    start_issues = get_issues_open_on_date(client, project, date, **kwargs)
+    start_issues = get_issues_open_on_date(query, date)
 
     if start_fn is not None:
         start_fn(date, start_issues)
 
     while date < end:
-        opened_issues = get_issues_opened_in_range(client, project, date, days=days, **kwargs)
-        closed_issues = get_issues_closed_in_range(client, project, date, days=days, **kwargs)
+        opened_issues = get_issues_opened_in_range(query, date, days=days)
+        closed_issues = get_issues_closed_in_range(query, date, days=days)
 
         date = date + datetime.timedelta(days=days)
 
         if iter_fn is not None:
             iter_fn(date, opened_issues, closed_issues)
 
+def is_for_earlier_milestone_p(milestone):
+    """Return predicate that tests if the issue is for a previous milestone."""
+    return issue_property_lessthan_p(get_issue_milestone, milestone)
+
+def is_for_milestone_p(milestone):
+    """Return predicate that tests if the issue is for the given milestone."""
+    return issue_property_matches_p(get_issue_milestone, milestone)
+
+def is_launch_p():
+    """Return a predicate that tests if issue is a launch bug."""
+    return issue_has_label("Type-Launch")
 
 class GridTracker(object):
     """Track issues over time."""
@@ -287,7 +354,7 @@ class GridTracker(object):
                 if key in issues:
                     values.append(str(len(issues[key])))
                 else:
-                    values.append("")
+                    values.append("0")
             print "\t".join(values)
 
 
@@ -324,41 +391,71 @@ class ChangeTracker(object):
             print "\t".join([date.strftime("%Y/%m/%d"), str(fixed), str(new)])
 
 
-def print_open_close_rate(client, project, start, end, days=1, **kwargs):
+def print_open_close_rate(query, start, end, days=1):
     """Print the rate of open/closed bugs."""
 
     priority_tracker = GridTracker(get_issue_priority)
-    status_tracker = GridTracker(get_issue_status)
-    milestone_tracker = GridTracker(get_issue_milestone)
+    # status_tracker = GridTracker(get_issue_status)
+    # milestone_tracker = GridTracker(get_issue_milestone)
     change_tracker = ChangeTracker()
 
+    trackers = [priority_tracker, change_tracker]
+
     def start_fn(*args, **kwargs):
-        priority_tracker.start(*args, **kwargs)
-        status_tracker.start(*args, **kwargs)
-        milestone_tracker.start(*args, **kwargs)
-        change_tracker.start(*args, **kwargs)
+        for tracker in trackers:
+            tracker.start(*args, **kwargs)
 
     def iter_fn(*args, **kwargs):
-        priority_tracker.iter(*args, **kwargs)
-        status_tracker.iter(*args, **kwargs)
-        milestone_tracker.iter(*args, **kwargs)
-        change_tracker.iter(*args, **kwargs)
+        for tracker in trackers:
+            tracker.iter(*args, **kwargs)
 
-    iterate_through_range(client, project, start, end, start_fn, iter_fn, days=days, **kwargs)
+    iterate_through_range(query, start, end, start_fn, iter_fn, days=days)
 
-    priority_tracker.display()
-    status_tracker.display()
-    milestone_tracker.display()
-    change_tracker.display()
+    for tracker in trackers:
+        tracker.display()
+
+def print_issues_summary(name, issues):
+    """Print summary about the given set of issues."""
+    launches = filter(is_launch_p(), issues)
+    non_launches = filter(notp(is_launch_p()), issues)
+    print "{name}: {num_issues} issues, {num_launches} launches".format(
+        name=name, num_issues=len(non_launches), num_launches=len(launches))
+
+def print_pre_milestone_summary(milestone, issues):
+    """Print info about the milestone."""
+    milestone_issues = filter(issue_property_lessthan_p(get_issue_milestone, milestone), issues)
+    name = "Pre-M{milestone}".format(milestone=milestone)
+    print_issues_summary(name, milestone_issues)
+
+def print_milestone_summary(milestone, issues):
+    """Print info about the milestone."""
+    milestone_issues = filter(is_for_milestone_p(milestone), issues)
+    name = "M{milestone}".format(milestone=milestone)
+    print_issues_summary(name, milestone_issues)
 
 
 def main():
     """Generate issues CSV."""
-    http = _authorize()
-    issues = get_all_issues(http, PROJECT, label=LABEL, verbose=True)
-    
-    print "\nTotal issues: {num_issues}".format(num_issues=len(issues))
+    arguments = docopt(__doc__, version='Naval Fate 2.0')
 
+    http = _authorize() if arguments["--authorize"] else None
+    query = IssuesQuery(arguments["<project>"], client=http)
+    if arguments["--label"] is not None:
+        query = query.label(arguments["--label"])
+
+    issues = query.fetch_all_issues()
+    
+    # Print simple metrics
+    print_issues_summary("All", issues)
+
+    # Print milestone summaries
+    if arguments["--milestone"] is not None:
+        milestone = int(arguments["--milestone"])
+        print_pre_milestone_summary(milestone, issues)
+        print_milestone_summary(milestone, issues)
+        print_milestone_summary(milestone+1, issues)
+
+    # Print breakdowns across various metrics
     print "\n== Issues by owner =="
     print_groups(issues, get_issue_owner, hint=3)
     print "\n== Issues by priority =="
@@ -367,10 +464,18 @@ def main():
     print_groups(issues, get_issue_milestone, hint=3)
     print "\n== Issues by status =="
     print_groups(issues, get_issue_status, hint=3)
+    print "\n== Issues by stars =="
+    print_groups(issues, get_issue_stars, hint=3)
+    print "\n== Issues by updated =="
+    print_groups(issues, get_issue_updated_date, hint=3)
+    print "\n== Issues by published =="
+    print_groups(issues, get_issue_published_date, hint=3)
+
+    # Print graph data
     print "\n== Issues by priority over past 120 days =="
     start = datetime.date.today() - datetime.timedelta(days=120)
     end = datetime.date.today()
-    print_open_close_rate(http, PROJECT, start, end, days=7, label=LABEL)
+    print_open_close_rate(query, start, end, days=7)
     
 if __name__ == "__main__":
     main()
