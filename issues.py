@@ -22,6 +22,7 @@ from oauth2client.tools import run_flow
 
 from query import IssuesQuery
 import utils
+import visualizers
 
 CLIENT_SECRETS = 'client_secrets.json'
 OAUTH2_STORAGE = 'oauth2.dat'
@@ -54,37 +55,6 @@ def _authorize():
     return auth_http
 
 
-
-
-# def get_all_issues(client, project, verbose=False, **kwargs):
-#     """Get all issues for the given search."""
-#     page = get_issues_page(client, project, **kwargs)
-    
-#     if verbose:
-#         details = get_details_for_page(page)
-#         num_pages = 0
-#         if details.limit > 0:
-#             num_pages = int(ceil(details.count / float(details.limit)))
-#         counter = 1
-#         print "Fetching {num_pages} pages...".format(num_pages=num_pages),
-#         sys.stdout.flush()
-
-#     issues = []
-#     while page is not None:
-#         if verbose:
-#             print "{counter} ".format(counter=counter),
-#             sys.stdout.flush()
-#             counter += 1
-#         issues += get_issues_from_page(page)
-#         page = get_next_page(client, page)
-#     if verbose:
-#         print
-#     return issues
-
-
-
-# Issue helpers
-
 def get_issues_in_range(query, status, date, days=1):
     """Get the issues with the given status on the date. status = (opened|closed)."""
     assert status in ["opened", "closed"]
@@ -115,52 +85,13 @@ def get_issues_open_on_date(query, date):
     issues += open_bugs_query.fetch_all_issues()
     return issues
 
-def group_issues(issues, prop_fn):
-    """Group issues by owner."""
-    groups = {}
-    for issue in issues:
-        prop = prop_fn(issue)
-        if prop not in groups:
-            groups[prop] = []
-        groups[prop].append(issue)
-    return groups
-
-def print_groups(issues, prop_fn, hint=0):
-    """Print the groups"""
-    groups = group_issues(issues, prop_fn)
-    keys = groups.keys()
-    keys.sort()
-    for key in keys:
-        key_issues = groups[key]
-        print "{key}: {num_issues}".format(key=key, num_issues=len(key_issues)),
-        if hint > 0:
-            key_ids = [str(utils.get_issue_id(i)) for i in key_issues]
-            if len(key_ids) > hint:
-                print "["+" ".join(key_ids[:3])+"...]"
-            else:
-                print "["+" ".join(key_ids)+"]"
-        else:
-            print
-
-def create_issue_dict(issues):
-    issue_dict = {}
-    for issue in issues:
-        issue_dict[utils.get_issue_id(issue)] = issue
-    return issue_dict
-
-def issue_dict_remove(issue_dict, issue):
-    del issue_dict[utils.get_issue_id(issue)]
-
-def issue_dict_add(issue_dict, issue):
-    issue_dict[utils.get_issue_id(issue)] = issue
-
-def iterate_through_range(query, start, end, start_fn=None, iter_fn=None, days=1):
+def iterate_through_range(query, start, end, days, trackers):
     """Iterate through the range."""
     date = start
     start_issues = get_issues_open_on_date(query, date)
 
-    if start_fn is not None:
-        start_fn(date, start_issues)
+    for tracker in trackers:
+        tracker.start(date, start_issues)
 
     while date < end:
         opened_issues = get_issues_opened_in_range(query, date, days=days)
@@ -168,107 +99,10 @@ def iterate_through_range(query, start, end, start_fn=None, iter_fn=None, days=1
 
         date = date + datetime.timedelta(days=days)
 
-        if iter_fn is not None:
-            iter_fn(date, opened_issues, closed_issues)
-
-class GridTracker(object):
-    """Track issues over time."""
-
-    def __init__(self, prop_fn):
-        self._prop_fn = prop_fn
-        self._issue_dict = None
-        self._tracker = []
-
-    def start(self, date, start_issues):
-        """Start with the given set of issues."""
-        self._issue_dict = create_issue_dict(start_issues)
-        self._tracker.append((date, group_issues(start_issues, self._prop_fn)))
-
-    def iter(self, date, opened_issues, closed_issues):
-        """Add an iteration with the opened/closed issues."""
-        for issue in opened_issues:
-            issue_dict_add(self._issue_dict, issue)
-        for issue in closed_issues:
-            issue_dict_remove(self._issue_dict, issue)
-        issues = self._issue_dict.values()
-        self._tracker.append((date, group_issues(issues, self._prop_fn)))
-
-    def display(self):
-        """Print out the tracker."""
-        keys = set()
-        for (date, issues) in self._tracker:
-            keys = keys.union(set(issues.keys()))
-        keys = list(keys)
-
-        # Print headers
-        print "\t".join(["date"]+[str(key) for key in keys])
-
-        # Print rows
-        for (date, issues) in self._tracker:
-            values = [date.strftime("%Y/%m/%d")]
-            for key in keys:
-                if key in issues:
-                    values.append(str(len(issues[key])))
-                else:
-                    values.append("0")
-            print "\t".join(values)
-
-
-class ChangeTracker(object):
-    """Track issues over time."""
-
-    def __init__(self):
-        self._original_issues = None
-        self._new_issues = None
-        self._closed_original_issues = None
-        self._tracker = []
-
-    def start(self, date, start_issues):
-        """Start with the given set of issues."""
-        self._original_issues = set([utils.get_issue_id(i) for i in start_issues])
-        self._new_issues = set()
-        self._closed_original_issues = set()
-        self._tracker.append((date, len(self._closed_original_issues), len(self._new_issues)))
-
-    def iter(self, date, opened_issues, closed_issues):
-        """Add an iteration with the opened/closed issues."""
-        opened_ids = set([utils.get_issue_id(i) for i in opened_issues])
-        closed_ids = set([utils.get_issue_id(i) for i in closed_issues])
-        closed_original = closed_ids.intersection(self._original_issues)
-        self._closed_original_issues = self._closed_original_issues.union(closed_original)
-        self._original_issues = self._original_issues.difference(closed_ids)
-        self._new_issues = self._new_issues.union(opened_ids).difference(closed_ids)
-        self._tracker.append((date, len(self._closed_original_issues), len(self._new_issues)))
-
-    def display(self):
-        """Print out the tracker."""
-        print "\t".join(["date", "fixed", "new"])
-        for (date, fixed, new) in self._tracker:
-            print "\t".join([date.strftime("%Y/%m/%d"), str(fixed), str(new)])
-
-
-def print_open_close_rate(query, start, end, days=1):
-    """Print the rate of open/closed bugs."""
-
-    priority_tracker = GridTracker(utils.get_issue_priority)
-    # status_tracker = GridTracker(get_issue_status)
-    # milestone_tracker = GridTracker(get_issue_milestone)
-    change_tracker = ChangeTracker()
-
-    trackers = [priority_tracker, change_tracker]
-
-    def start_fn(*args, **kwargs):
         for tracker in trackers:
-            tracker.start(*args, **kwargs)
+            tracker.step(date, opened_issues, closed_issues)
 
-    def iter_fn(*args, **kwargs):
-        for tracker in trackers:
-            tracker.iter(*args, **kwargs)
 
-    iterate_through_range(query, start, end, start_fn, iter_fn, days=days)
-
-    for tracker in trackers:
-        tracker.display()
 
 def print_issues_summary(name, issues):
     """Print summary about the given set of issues."""
@@ -313,25 +147,32 @@ def main():
 
     # Print breakdowns across various metrics
     print "\n== Issues by owner =="
-    print_groups(issues, utils.get_issue_owner, hint=3)
+    visualizers.print_groups(issues, utils.get_issue_owner, hint=3)
     print "\n== Issues by priority =="
-    print_groups(issues, utils.get_issue_priority, hint=3)
+    visualizers.print_groups(issues, utils.get_issue_priority, hint=3)
     print "\n== Issues by milestone =="
-    print_groups(issues, utils.get_issue_milestone, hint=3)
+    visualizers.print_groups(issues, utils.get_issue_milestone, hint=3)
     print "\n== Issues by status =="
-    print_groups(issues, utils.get_issue_status, hint=3)
+    visualizers.print_groups(issues, utils.get_issue_status, hint=3)
+    print "\n== Issues by type =="
+    visualizers.print_groups(issues, utils.get_issue_type, hint=3)
     print "\n== Issues by stars =="
-    print_groups(issues, utils.get_issue_stars, hint=3)
+    visualizers.print_groups(issues, utils.get_issue_stars, hint=3)
     print "\n== Issues by updated =="
-    print_groups(issues, utils.get_issue_updated_date, hint=3)
+    visualizers.print_groups(issues, utils.get_issue_updated_date, hint=3)
     print "\n== Issues by published =="
-    print_groups(issues, utils.get_issue_published_date, hint=3)
+    visualizers.print_groups(issues, utils.get_issue_published_date, hint=3)
 
     # Print graph data
-    print "\n== Issues by priority over past 120 days =="
+    priority_tracker = visualizers.GridTracker(utils.get_issue_priority)
+    change_tracker = visualizers.ChangeTracker()
     start = datetime.date.today() - datetime.timedelta(days=120)
     end = datetime.date.today()
-    print_open_close_rate(query, start, end, days=7)
+    iterate_through_range(query, start, end, 7, [priority_tracker, change_tracker])
+    print "\n== Issues by priority over past 120 days =="
+    priority_tracker.display()
+    print "\n== Issues opened/fixed over past 120 days =="
+    change_tracker.display()
     
 if __name__ == "__main__":
     main()
