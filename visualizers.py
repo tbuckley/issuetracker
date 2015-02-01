@@ -4,39 +4,58 @@ from abc import ABCMeta, abstractmethod
 
 import utils
 
-# class IssueSet(object):
+
+class IssueSet(object):
+    """A set of issues. Issues can be added and remove."""
     
-#     def __init__(self, issues=None):
-#         self._issues = {}
+    def __init__(self, issues=None):
+        self._issues = {}
 
-#         if issues is not None:
-#             for issue in issues:
-#                 self.add(issue)
+        if issues is not None:
+            for issue in issues:
+                self.add(issue)
 
-#     def add(self, issue):
-#         """Add an issue to the set."""
-#         pass
+    def add(self, issue):
+        """Add an issue to the set."""
+        issue_id = utils.get_issue_id(issue)
+        self._issues[issue_id] = issue
 
-#     def remove(self, issue):
-#         """Remove an issue from the set."""
-#         pass
+    def remove(self, issue):
+        """Remove an issue from the set."""
+        issue_id = utils.get_issue_id(issue)
+        del self._issues[issue_id]
 
-
-# class Table(object):
-#     def __init__(self, headers=None):
-#         self._headers = headers
-
-#     def set_headers(self, headers):
-#         self._headers = headers
-
-#     def add_row(self, row):
-#         pass
-
-#     def __str__(self):
-#         pass
+    @property
+    def list(self):
+        """Return the IssueSet as a python list."""
+        return self._issues.values()
 
 
-class HistoryTracker:
+class Table(object):
+    """Represents tabular data."""
+
+    def __init__(self, headers=None):
+        self._headers = headers
+        self._rows = []
+
+    def set_headers(self, headers):
+        """Set the headers for the table."""
+        self._headers = headers
+
+    def add_row(self, row):
+        """Add a row to the table."""
+        self._rows.append(row)
+
+    def __str__(self):
+        table = []
+        if self._headers is not None:
+            table.append("\t".join([str(val) for val in self._headers]))
+        for row in self._rows:
+            table.append("\t".join([str(val) for val in row]))
+        return "\n".join(table)
+
+
+class HistoryTracker(object):
     """Abstract class for tracking how issues change over time."""
 
     __metaclass__ = ABCMeta
@@ -92,78 +111,65 @@ class ChangeTracker(HistoryTracker):
 
     def display(self):
         """Print out the tracker."""
-        print "\t".join(["date", "fixed", "new"])
+        table = Table(headers=["date", "fixed", "new"])
         for (date, fixed, new) in self._tracker:
-            print "\t".join([date.strftime("%Y/%m/%d"), str(fixed), str(new)])
+            table.add_row([date.strftime("%Y/%m/%d"), fixed, new])
+        print str(table)
 
-
-def create_issue_dict(issues):
-    issue_dict = {}
-    for issue in issues:
-        issue_dict[utils.get_issue_id(issue)] = issue
-    return issue_dict
-
-def issue_dict_remove(issue_dict, issue):
-    del issue_dict[utils.get_issue_id(issue)]
-
-def issue_dict_add(issue_dict, issue):
-    issue_dict[utils.get_issue_id(issue)] = issue
 
 class GridTracker(HistoryTracker):
-    """Track issues over time."""
+    """Track how issues have changed over time. Split the issues on a given property.
+
+    For instance, to see how issues have changed by priority:
+        GridTracker(get_issue_priority)
+
+        date    None    1   2
+        2015-01-01  5   8   12
+        2015-01-08  7   10  14
+        ...
+    """
 
     def __init__(self, prop_fn):
         self._prop_fn = prop_fn
-        self._issue_dict = None
+        self._issue_set = None
         self._tracker = []
 
     def start(self, date, start_issues):
         """Start with the given set of issues."""
-        self._issue_dict = create_issue_dict(start_issues)
-        self._tracker.append((date, group_issues(start_issues, self._prop_fn)))
+        self._issue_set = IssueSet(start_issues)
+        self._tracker.append((date, utils.group_issues(start_issues, self._prop_fn)))
 
     def step(self, date, opened_issues, closed_issues):
         """Add an iteration with the opened/closed issues."""
         for issue in opened_issues:
-            issue_dict_add(self._issue_dict, issue)
+            self._issue_set.add(issue)
         for issue in closed_issues:
-            issue_dict_remove(self._issue_dict, issue)
-        issues = self._issue_dict.values()
-        self._tracker.append((date, group_issues(issues, self._prop_fn)))
+            self._issue_set.remove(issue)
+        self._tracker.append((date, utils.group_issues(self._issue_set.list, self._prop_fn)))
 
     def display(self):
         """Print out the tracker."""
-        keys = set()
-        for (date, issues) in self._tracker:
-            keys = keys.union(set(issues.keys()))
-        keys = list(keys)
+        table = Table()
 
-        # Print headers
-        print "\t".join(["date"]+[str(key) for key in keys])
+        # Join keys from each day to get headers
+        keys = set()
+        for (_, issues) in self._tracker:
+            keys = keys.union(issues.keys())
+        keys = list(keys)
+        keys.sort()
+        table.set_headers(["date"] + keys)
 
         # Print rows
         for (date, issues) in self._tracker:
-            values = [date.strftime("%Y/%m/%d")]
-            for key in keys:
-                if key in issues:
-                    values.append(str(len(issues[key])))
-                else:
-                    values.append("0")
-            print "\t".join(values)
+            date_str = date.strftime("%Y/%m/%d")
+            values = [len(issues.get(key, [])) for key in keys]
+            table.add_row([date_str] + values)
+        print str(table)
 
-def group_issues(issues, prop_fn):
-    """Group issues by owner."""
-    groups = {}
-    for issue in issues:
-        prop = prop_fn(issue)
-        if prop not in groups:
-            groups[prop] = []
-        groups[prop].append(issue)
-    return groups
 
 def print_groups(issues, prop_fn, hint=0):
     """Print the groups"""
-    groups = group_issues(issues, prop_fn)
+    groups = utils.group_issues(issues, prop_fn)
     keys = groups.keys()
     keys.sort()
     for key in keys:

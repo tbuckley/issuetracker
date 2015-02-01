@@ -181,3 +181,15 @@ def issue_is_for_milestone_p(milestone):
 def issue_is_launch_p(issue):
     """Return a predicate that tests if issue is a launch bug."""
     return issue_has_label_p("Type-Launch")(issue)
+
+# Misc
+
+def group_issues(issues, prop_fn):
+    """Group issues by the given property function."""
+    groups = {}
+    for issue in issues:
+        prop = prop_fn(issue)
+        if prop not in groups:
+            groups[prop] = []
+        groups[prop].append(issue)
+    return groups

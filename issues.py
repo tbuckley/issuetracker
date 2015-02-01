@@ -85,8 +85,20 @@ def get_issues_open_on_date(query, date):
     issues += open_bugs_query.fetch_all_issues()
     return issues
 
-def iterate_through_range(query, start, end, days, trackers):
-    """Iterate through the range."""
+def iterate_through_issue_range(query, start, end, days, trackers):
+    """Iterate through the range.
+
+    Calls the trackers with the set of issues that existed at the start of the
+    time range, then at each timestep with the sets of issues that have been
+    opened and closed since the previous step.
+
+    Arguments:
+    - query: the query to track over time
+    - start: the start of the time period (date.date)
+    - end: the end of the time period (date.date)
+    - days: the number of days to include in each interval
+    - trackers: a list of HistoryTracker objects
+    """
     date = start
     start_issues = get_issues_open_on_date(query, date)
 
@@ -101,8 +113,6 @@ def iterate_through_range(query, start, end, days, trackers):
 
         for tracker in trackers:
             tracker.step(date, opened_issues, closed_issues)
-
-
 
 def print_issues_summary(name, issues):
     """Print summary about the given set of issues."""
@@ -168,7 +178,7 @@ def main():
     change_tracker = visualizers.ChangeTracker()
     start = datetime.date.today() - datetime.timedelta(days=120)
     end = datetime.date.today()
-    iterate_through_range(query, start, end, 7, [priority_tracker, change_tracker])
+    iterate_through_issue_range(query, start, end, 7, [priority_tracker, change_tracker])
     print "\n== Issues by priority over past 120 days =="
     priority_tracker.display()
     print "\n== Issues opened/fixed over past 120 days =="
