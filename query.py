@@ -5,6 +5,7 @@ import copy
 from urllib import urlencode
 from urlparse import urlunsplit
 import xml.etree.ElementTree as ET
+
 from utils import get_first_child_by_tag
 
 def count_for_page(page):
