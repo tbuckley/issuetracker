@@ -12,13 +12,14 @@ Options:
 """
 
 import argparse
-import httplib2
-from oauth2client import tools
-from oauth2client.tools import run_flow
-from oauth2client.client import flow_from_clientsecrets
-from oauth2client.file import Storage
 import datetime
 from docopt import docopt
+import httplib2
+from oauth2client import tools
+from oauth2client.client import flow_from_clientsecrets
+from oauth2client.file import Storage
+from oauth2client.tools import run_flow
+
 from query import IssuesQuery
 import utils
 
@@ -31,7 +32,9 @@ def _authorize():
     """Return authenticated http client.
 
     _authorize will try to read credentials from OAUTH2_STORAGE. If
-    credentials do not exist, _authorize will open a sign-in flow.
+    credentials do not exist, _authorize will open a sign-in flow. The
+    authorized http client will have access to the scope ISSUE_TRACKER_SCOPE,
+    and will read oauth tokens from CLIENT_SECRETS.
     """
     parser = argparse.ArgumentParser(
         description=__doc__,
