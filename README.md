@@ -8,8 +8,10 @@ Issue Tracker helps you to generate reports based on bugs in the Google Code Iss
 
 ##### Clone this project and install dependencies
 
-1. `git clone ...`
-2. `pip install httplib2 docopt oauth2client`
+	$ git clone git@github.com:tbuckley/issuetracker.git
+	$ cd issuetracker
+	$ chmod +x issues.py
+	$ pip install httplib2 docopt oauth2client
 
 
 ##### Get your client ID
