@@ -33,11 +33,29 @@ and name the file `client_secrets.json`
 
 Run `./issues.py --help` to see how you can use it:
 
-    issues.py <project> [--label=<LABEL>] [--milestone=<M>] [--authorize]
+	Usage:
+  	  issues.py <project> [options]
 
-    Options:
-	  -h --help        Show this screen.
-	  --version        Show version.
-	  --authorize      Use logged-in client for requests.
-	  --label=<LABEL>  Filter issues to the given label.
-	  --milestone=<M>  Show information for the given milestone.
+	Options:
+	  -h --help         Show this screen.
+	  --version         Show version.
+	  --authorize       Use logged-in client for requests.
+	  --label=<LABEL>   Filter issues to the given label.
+	  --display=<LIST>  Comma-separate list of things to show.
+
+	You can control what information is display using the --display flag.
+	* "count:all" -- print count for all matching issues
+	* "count:<prop>=<val>" -- print count for issues where prop has value
+	* "groups:all" -- print groups for all property functions
+	* "groups:<prop>" -- print group for specific property
+	* "quantiles:<prop>" -- print quantiles for specific property
+	* "graph:change" -- show how many bugs have been opened/closed over time
+	* "graph:<prop>" -- show how bugs changed for the given property over time
+
+	<prop> can be one of "owner", "priority", "milestone", "status", "type", 
+	"stars", "updated", "published", "label"
+
+By default, various useful pieces of information will be shown. However, you can configure
+what is shown using the `--display` flag. For example, to show just a count of all bugs and untriaged bugs:
+
+	./issues.py chromium --display=count:all,count:status=Untriaged
