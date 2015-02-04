@@ -137,7 +137,7 @@ class GridTracker(HistoryTracker):
     def start(self, date, start_issues):
         """Start with the given set of issues."""
         self._issue_set = IssueSet(start_issues)
-        self._tracker.append((date, utils.group_issues(start_issues, self._prop_fn)))
+        self._tracker.append((date, utils.group_issues_by_prop(start_issues, self._prop_fn)))
 
     def step(self, date, opened_issues, closed_issues):
         """Add an iteration with the opened/closed issues."""
@@ -145,7 +145,8 @@ class GridTracker(HistoryTracker):
             self._issue_set.add(issue)
         for issue in closed_issues:
             self._issue_set.remove(issue)
-        self._tracker.append((date, utils.group_issues(self._issue_set.list, self._prop_fn)))
+        groups = utils.group_issues_by_prop(self._issue_set.list, self._prop_fn)
+        self._tracker.append((date, groups))
 
     def display(self):
         """Print out the tracker."""
@@ -166,14 +167,30 @@ class GridTracker(HistoryTracker):
             table.add_row([date_str] + values)
         print str(table)
 
+def key_prop(item):
+    """Get the name of the key for the item."""
+    return item[0]
 
-def print_groups(issues, prop_fn, hint=0):
-    """Print the groups"""
-    groups = utils.group_issues(issues, prop_fn)
-    keys = groups.keys()
-    keys.sort()
-    for key in keys:
-        key_issues = groups[key]
+def len_prop(item):
+    """Get the number of issues for the item."""
+    return len(item[1])
+
+def print_groups(groups, hint=0, sort_by_issues=False):
+    """Print the groups.
+
+    Arguments:
+    - groups: the groups to print (dict)
+    - hint: the maximum number of issue IDs to print out
+    - sort_by_issues: if True, print groups by the number of issues instead of by the dict keys
+    """
+    items = groups.items()
+
+    if sort_by_issues:
+        items.sort(key=len_prop, reverse=True)
+    else:
+        items.sort(key=key_prop, reverse=False)
+
+    for (key, key_issues) in items:
         print "{key}: {num_issues}".format(key=key, num_issues=len(key_issues)),
         if hint > 0:
             key_ids = [str(utils.get_issue_id(i)) for i in key_issues]
@@ -183,3 +200,22 @@ def print_groups(issues, prop_fn, hint=0):
                 print "["+" ".join(key_ids)+"]"
         else:
             print
+
+def print_groups_by_prop(issues, prop_fn, hint=0, sort_by_issues=False):
+    """Print the groups for a property function that returns a single value."""
+    groups = utils.group_issues_by_prop(issues, prop_fn)
+    print_groups(groups, hint=hint, sort_by_issues=sort_by_issues)
+
+def print_groups_by_list_prop(issues, prop_fn, hint=0, sort_by_issues=False):
+    """Print the groups for a property function that returns a list."""
+    groups = utils.group_issues_by_list_prop(issues, prop_fn)
+    print_groups(groups, hint=hint, sort_by_issues=sort_by_issues)
+
+def print_quantiles(values, quantiles, reverse=False):
+    """Print the quantiles for the given values."""
+    sorted_values = sorted(values)
+    if reverse:
+        sorted_values.reverse()
+    for quantile in quantiles:
+        i = int(len(values) * float(quantile) / 100)
+        print "{quant}%: {prop}".format(quant=quantile, prop=sorted_values[i])

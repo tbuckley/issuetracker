@@ -184,7 +184,7 @@ def issue_is_launch_p(issue):
 
 # Misc
 
-def group_issues(issues, prop_fn):
+def group_issues_by_prop(issues, prop_fn):
     """Group issues by the given property function."""
     groups = {}
     for issue in issues:
@@ -193,3 +193,28 @@ def group_issues(issues, prop_fn):
             groups[prop] = []
         groups[prop].append(issue)
     return groups
+
+def group_issues_by_list_prop(issues, prop_fn):
+    """Group issues by the given property function, which returns a list."""
+    groups = {}
+    for issue in issues:
+        props = prop_fn(issue)
+        for prop in props:
+            if prop not in groups:
+                groups[prop] = []
+            groups[prop].append(issue)
+    return groups
+
+def issues_with_property(issues, prop_fn, value):
+    """Get issues that have the given property."""
+    groups = group_issues_by_prop(issues, prop_fn)
+    return groups.get(value, [])
+
+def sort_issues(issues, key):
+    """Sort issues by the given key."""
+    return sorted(issues, key=key)
+
+def most_issues(issues, key, limit=5):
+    """Return the first N issues after sorting by the key function."""
+    sorted_issues = sort_issues(issues, key=key)
+    return sorted_issues[:limit]
