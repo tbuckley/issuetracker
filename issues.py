@@ -69,35 +69,15 @@ def _authorize():
     auth_http = credentials.authorize(http)
     return auth_http
 
-
-def get_issues_in_range(query, status, date, days=1):
-    """Get the issues with the given status on the date. status = (opened|closed)."""
-    assert status in ["opened", "closed"]
-    end_date = date + datetime.timedelta(days=days)
-    query = query.can("all")
-    if status == "opened":
-        query = query.opened_after(date).opened_before(end_date)
-    elif status == "closed":
-        query = query.closed_after(date).closed_before(end_date)
-    return query.fetch_all_issues()
-
-def get_issues_opened_in_range(query, date, days=1):
-    """Get the issues opened on the date."""
-    return get_issues_in_range(query, "opened", date, days=days)
-
-def get_issues_closed_in_range(query, date, days=1):
-    """Get the issues closed on the date."""
-    return get_issues_in_range(query, "closed", date, days=days)
-
 def get_issues_open_on_date(query, date):
     """Get the issues that were open on the given date."""
     issues = []
     # Closed bugs that were filed before `date` and closed after `date`
     closed_bugs_query = query.can("all").opened_before(date).closed_after(date)
-    issues += closed_bugs_query.fetch_all_issues()
+    issues += closed_bugs_query.fetch_all_issues(authorize=_authorize)
     # Open bugs that were filed before `date`
     open_bugs_query = query.opened_before(date)
-    issues += open_bugs_query.fetch_all_issues()
+    issues += open_bugs_query.fetch_all_issues(authorize=_authorize)
     return issues
 
 def iterate_through_issue_range(query, start, end, days, trackers):
@@ -120,12 +100,15 @@ def iterate_through_issue_range(query, start, end, days, trackers):
     for tracker in trackers:
         tracker.start(date, start_issues)
 
-    while date < end:
-        opened_issues = get_issues_opened_in_range(query, date, days=days)
-        closed_issues = get_issues_closed_in_range(query, date, days=days)
+    # while date < end:
+    #     end_date = date + datetime.timedelta(days=days)
+    #     opened_issues = query.opened_in_range(date, end_date).fetch_all_issues(authorize=_authorize)
+    #     closed_issues = query.closed_in_range(date, end_date).fetch_all_issues(authorize=_authorize)
 
-        date = date + datetime.timedelta(days=days)
+    #     date = date + datetime.timedelta(days=days)
 
+    changes = query.fetch_changes_for_range(start, end, days, authorize=_authorize)
+    for (date, opened_issues, closed_issues) in changes:
         for tracker in trackers:
             tracker.step(date, opened_issues, closed_issues)
 
@@ -283,7 +266,7 @@ class DisplayHelper(object):
 
     def display(self, query):
         """Display the given issues."""
-        issues = query.fetch_all_issues()
+        issues = query.fetch_all_issues(authorize=_authorize)
         display_fns = self.generate_displays(self._displays)
         for display_fn in display_fns:
             if callable(display_fn):

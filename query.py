@@ -5,8 +5,13 @@ import copy
 from urllib import urlencode
 from urlparse import urlunsplit
 import xml.etree.ElementTree as ET
+from math import ceil
+from multiprocessing import Pool
+import datetime
 
 from utils import get_first_child_by_tag
+
+MAX_POOL_THREADS = 10
 
 def count_for_page(page):
     """Get the count for the given page."""
@@ -17,13 +22,19 @@ def get_xml_tree_for_url(client, url):
     (_, content) = client.request(url, "GET")
     return ET.fromstring(content)
 
-def get_next_page(client, page):
-    """Get the next page of issues if one exists. Return None otherwise."""
+def get_next_page_url(page):
+    """Get the url of the next page."""
     for child in page:
         if child.tag.endswith("link") and child.attrib["rel"] == "next":
-            url = child.attrib["href"]
-            return get_xml_tree_for_url(client, url)
+            return child.attrib["href"]
     return None
+
+def get_next_page(client, page):
+    """Get the next page of issues if one exists. Return None otherwise."""
+    url = get_next_page_url(page)
+    if url is None:
+        return None
+    return get_xml_tree_for_url(client, url)
 
 def get_issues_from_page(page):
     """Return a list of the issues from the given page."""
@@ -33,6 +44,20 @@ def get_issues_from_page(page):
             entries.append(child)
     return entries
 
+
+def _fetch_page_args(args):
+    """Helper function to call fetch_page on the query."""
+    (query, offset, limit, authorize) = args
+    if authorize is not None:
+        query._client = authorize()
+    return query.fetch_page(offset, limit)
+
+
+def _fetch_changes_for_range(args):
+    (query, start, end, authorize) = args
+    opened_issues = query.opened_in_range(start, end).fetch_all_issues(authorize=authorize)
+    closed_issues = query.closed_in_range(start, end).fetch_all_issues(authorize=authorize)
+    return (start, opened_issues, closed_issues)
 
 class IssuesQuery(object):
     """Query the Google Code issue tracker.
@@ -107,6 +132,10 @@ class IssuesQuery(object):
         """Filter to issues opened after midnight at the start of the given date."""
         return self._add_date_query("opened-after", date)
 
+    def opened_in_range(self, start_date, end_date):
+        """Filter to issues opened between the midnights starting start_date and end_date."""
+        return self.can("all").opened_after(start_date).opened_before(end_date)
+
     def closed_before(self, date):
         """Filter to issues closed before midnight at the start of the given date."""
         return self._add_date_query("closed-before", date)
@@ -114,6 +143,10 @@ class IssuesQuery(object):
     def closed_after(self, date):
         """Filter to issues closed after midnight at the start of the given date."""
         return self._add_date_query("closed-after", date)
+
+    def closed_in_range(self, start_date, end_date):
+        """Filter to issues closed between the midnights starting start_date and end_date."""
+        return self.can("all").closed_after(start_date).closed_before(end_date)
 
     def to_url(self, offset=0, limit=25):
         """Convert this query to a URL."""
@@ -131,17 +164,37 @@ class IssuesQuery(object):
         url = self.to_url(offset=offset, limit=limit)
         return get_xml_tree_for_url(self._client, url)
 
-    def fetch_all_issues(self, limit=25, verbose=False):
+    def fetch_all_issues(self, limit=25, verbose=False, authorize=None):
         """Fetch all issues for the query."""
         page = self.fetch_page(limit=limit)
+        count = count_for_page(page)
+
+        pages = [page]
+        num_pages = int(ceil(float(count) / float(limit)))
+        if num_pages > 1:
+            pool = Pool(min(num_pages, MAX_POOL_THREADS))
+            arg_gen = ((self, page*limit, limit, authorize) for page in range(1, num_pages))
+            pages += pool.map(_fetch_page_args, arg_gen)
+            pool.close()
 
         issues = []
-        while page is not None:
+        for page in pages:
             issues += get_issues_from_page(page)
-            page = get_next_page(self._client, page)
-        if verbose:
-            print
         return issues
+
+    def fetch_changes_for_range(self, start, end, days, authorize=None):
+        date = start
+        ranges = []
+        while date < end:
+            end_date = date + datetime.timedelta(days=days)
+            ranges.append((date, end_date))
+            date = date + datetime.timedelta(days=days)
+
+        pool = Pool(min(len(ranges), MAX_POOL_THREADS))
+        arg_gen = ((self, start, end, authorize) for (start, end) in ranges)
+        changes = pool.map(_fetch_changes_for_range, arg_gen)
+        pool.close()
+        return changes
 
     def count(self):
         """Get the number of issues for the query."""
