@@ -100,13 +100,6 @@ def iterate_through_issue_range(query, start, end, days, trackers):
     for tracker in trackers:
         tracker.start(date, start_issues)
 
-    # while date < end:
-    #     end_date = date + datetime.timedelta(days=days)
-    #     opened_issues = query.opened_in_range(date, end_date).fetch_all_issues(authorize=_authorize)
-    #     closed_issues = query.closed_in_range(date, end_date).fetch_all_issues(authorize=_authorize)
-
-    #     date = date + datetime.timedelta(days=days)
-
     changes = query.fetch_changes_for_range(start, end, days, authorize=_authorize)
     for (date, opened_issues, closed_issues) in changes:
         for tracker in trackers:
